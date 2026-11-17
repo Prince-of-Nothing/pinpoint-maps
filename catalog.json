@@ -1,34 +1,39 @@
 {
   "schema": 1,
-  "updated": "2026-11-17T12:00:00Z",
+  "updated": "2026-11-17T12:50:05Z",
   "regions": [
     {
       "id": "moldova",
       "name": "Moldova",
-      "bbox": [26.6, 45.4, 30.2, 48.5],
+      "bbox": [
+        26.6,
+        45.4,
+        30.2,
+        48.5
+      ],
       "maxzoom": 14,
-      "version": "20261116",
+      "version": "20261117",
       "files": [
         {
           "role": "basemap",
           "transfer_name": "moldova.pmtiles",
           "installed_name": "moldova.pmtiles",
-          "url": "https://github.com/Prince-of-Nothing/Pinpoint/releases/download/data-moldova-20261116/moldova.pmtiles",
-          "transfer_bytes": 93172399,
-          "transfer_sha256": "7b27155519e3384e1520d1a3dc6488f93cf1e46292dae22129f972bc97524f2e",
-          "installed_bytes": 93172399,
-          "installed_sha256": "7b27155519e3384e1520d1a3dc6488f93cf1e46292dae22129f972bc97524f2e",
+          "url": "https://github.com/Prince-of-Nothing/pinpoint-maps/releases/download/data-moldova-20261117-44085934444/moldova.pmtiles",
+          "transfer_bytes": 93172433,
+          "transfer_sha256": "437ab3218a43f2cdbe559a9c253cfa4bc0349e69f2dfa85666daa86bddaa4874",
+          "installed_bytes": 93172433,
+          "installed_sha256": "437ab3218a43f2cdbe559a9c253cfa4bc0349e69f2dfa85666daa86bddaa4874",
           "compression": "identity"
         },
         {
           "role": "graph",
           "transfer_name": "moldova.graph.bin.gz",
           "installed_name": "moldova.graph.bin",
-          "url": "https://github.com/Prince-of-Nothing/Pinpoint/releases/download/data-moldova-20261116/moldova.graph.bin.gz",
-          "transfer_bytes": 45338586,
-          "transfer_sha256": "276d0ddd3058524038f53a6562c86a12c408693a1e84bbb316c9db16badc9087",
-          "installed_bytes": 110858815,
-          "installed_sha256": "8cdbb0cb1d61c2d5857cb2677ab1343968223e4ae10892f0268c8feb0eb50e75",
+          "url": "https://github.com/Prince-of-Nothing/pinpoint-maps/releases/download/data-moldova-20261117-44085934444/moldova.graph.bin.gz",
+          "transfer_bytes": 44618497,
+          "transfer_sha256": "3f703181683d6aa567cf5c112c73e8eda0326b464b4ef093ba3a037c75c47333",
+          "installed_bytes": 110858935,
+          "installed_sha256": "25e2e8eeb524418d66445dc8c66b7d6c57b615945965692be82cb4dcf9b08253",
           "compression": "gzip"
         }
       ]
