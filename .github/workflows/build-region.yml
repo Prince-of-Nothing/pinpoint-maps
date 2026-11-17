@@ -20,6 +20,11 @@ on:
         description: Optional basemap maxzoom cap (keeps each asset under 2 GiB)
         type: string
         required: false
+      dry_run:
+        description: Print the build plan only; skip publish, catalog and commit
+        type: boolean
+        required: false
+        default: false
   schedule:
     - cron: "17 3 * * 1"
 
@@ -37,11 +42,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        region: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.region)) || fromJSON('["moldova", "romania", "ukraine"]') }}
+        # ukraine is dispatch-only: its basemap peaks at 10-15 GB on a 14 GB runner.
+        region: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.region)) || fromJSON('["moldova", "romania"]') }}
     env:
       REGION: ${{ matrix.region }}
       OUTPUT_ROOT: ${{ github.workspace }}/out
       MAXZOOM: ${{ inputs.maxzoom }}
+      DRY_RUN: ${{ inputs.dry_run }}
     steps:
       - name: Check out the data repo
         uses: actions/checkout@v4
@@ -81,10 +88,12 @@ jobs:
           RELEASE_URL: ${{ steps.meta.outputs.release_url }}
         run: |
           $extra = @()
-          if ($env:MAXZOOM) { $extra = @("-Maxzoom", $env:MAXZOOM) }
-          pwsh ./app/scripts/offline/build.ps1 -Region $env:REGION -OutputRoot $env:OUTPUT_ROOT -BaseUrl $env:RELEASE_URL @extra
+          if ($env:MAXZOOM) { $extra += @("-Maxzoom", $env:MAXZOOM) }
+          if ($env:DRY_RUN -eq 'true') { $extra += '-DryRun' }
+          pwsh ./app/scripts/offline/build.ps1 -Region $env:REGION -OutputRoot $env:OUTPUT_ROOT -BaseUrl $env:RELEASE_URL -AllowUnpinnedSource @extra
 
       - name: Publish data release
+        if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.meta.outputs.tag }}
@@ -107,6 +116,7 @@ jobs:
           done
 
       - name: Regenerate catalog.json
+        if: ${{ !inputs.dry_run }}
         shell: pwsh
         env:
           RELEASE_URL: ${{ steps.meta.outputs.release_url }}
@@ -115,6 +125,7 @@ jobs:
           pwsh ./app/scripts/offline/catalog.ps1 -RegionDir "$env:OUTPUT_ROOT/$env:REGION" -Catalog catalog.json -BaseUrl "$env:RELEASE_URL" -Version "$env:VERSION"
 
       - name: Commit catalog.json
+        if: ${{ !inputs.dry_run }}
         env:
           VERSION: ${{ steps.meta.outputs.version }}
         run: |

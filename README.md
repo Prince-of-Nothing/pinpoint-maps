@@ -120,10 +120,17 @@ day's release, and the catalog is regenerated in the same run.
 
    It must equal the catalog entry's `transfer_sha256`.
 
-Weekly schedule: `moldova`, `romania`, `ukraine` (Mondays 03:17 UTC). Everything
+Weekly schedule: `moldova`, `romania` (Mondays 03:17 UTC). Everything
 else is on demand. The schedule list lives in the workflow matrix fallback; add
 a region there to refresh it automatically. Scheduled builds always use
-`app_ref: main` and each region's `maxzoom` from `regions.json`.
+`app_ref: main` and each region's `maxzoom` from `regions.json`. Ukraine is
+dispatch-only: its basemap phase needs 5.4-9.8 GB with a peak of 10-15 GB, more
+than the 14 GB disk on `ubuntu-latest`, so it needs a larger/self-hosted runner
+or a lower `maxzoom` cap:
+
+```bash
+gh workflow run build-region.yml -f region=ukraine -f maxzoom=10
+```
 
 ## Workflow usage
 
@@ -134,6 +141,7 @@ a region there to refresh it automatically. Scheduled builds always use
 | `region` | yes | - | Region id to build. |
 | `app_ref` | no | `main` | Pinpoint branch, tag or SHA providing `scripts/offline/`. |
 | `maxzoom` | no | region config | Override the basemap maxzoom. |
+| `dry_run` | no | `false` | Print the build plan and stop; no release, no catalog commit. |
 
 What a run does: checks out this repo and the app at `app_ref`, installs Rust
 stable (Docker and `pwsh` are preinstalled on `ubuntu-latest`), runs
@@ -142,11 +150,28 @@ stable (Docker and `pwsh` are preinstalled on `ubuntu-latest`), runs
 manifest, verification), creates the data release with the default
 `GITHUB_TOKEN` (`contents: write`, `--prerelease --latest=false`), regenerates
 `catalog.json` from the published files, and commits it to `main`. No extra
-secrets are needed.
+secrets are needed. The build step always passes `-AllowUnpinnedSource`:
+scheduled builds follow Geofabrik `-latest`, so a changed extract warns and
+records the downloaded hash instead of failing the run; Docker images stay
+digest-pinned.
 
 A concurrency group per region keeps one build in flight per region; queued
 runs for the same region wait instead of racing. Different regions may run in
 parallel.
+
+### Dry run
+
+```bash
+gh workflow run build-region.yml -f region=romania -f app_ref=feat/global-maps -f dry_run=true
+```
+
+Validates `region` and `maxzoom`, checks out both repos and runs
+`build.ps1 ... -DryRun -AllowUnpinnedSource`, which prints the planned download,
+Planetiler/Valhalla Docker commands, `native-router` commands and the output
+file list, then stops. No Docker, no Geofabrik download, no release and no
+`catalog.json` change. The run still checks out both repos and installs Rust,
+and `build.ps1` must be a ref that supports `-DryRun` (`feat/global-maps` until
+that PR merges; older refs fail on the unknown parameter).
 
 The multi-region build and catalog scripts live on the app repo branch
 `feat/global-maps` until that PR merges. Before then pass
