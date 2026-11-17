@@ -124,6 +124,12 @@ jobs:
         run: |
           pwsh ./app/scripts/offline/catalog.ps1 -RegionDir "$env:OUTPUT_ROOT/$env:REGION" -Catalog catalog.json -BaseUrl "$env:RELEASE_URL" -Version "$env:VERSION"
 
+      - name: Validate catalog and schema
+        if: ${{ !inputs.dry_run }}
+        run: |
+          node scripts/validate-catalog.mjs
+          node --test scripts/validate-catalog.test.mjs
+
       - name: Commit catalog.json
         if: ${{ !inputs.dry_run }}
         env:
