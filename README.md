@@ -31,7 +31,7 @@ download. It follows **schema 1**:
           "role": "basemap",
           "transfer_name": "moldova.pmtiles",
           "installed_name": "moldova.pmtiles",
-          "url": "https://github.com/Prince-of-Nothing/Pinpoint/releases/download/data-moldova-20261116/moldova.pmtiles",
+          "url": "https://github.com/Prince-of-Nothing/pinpoint-maps/releases/download/data-moldova-20261116/moldova.pmtiles",
           "transfer_bytes": 93172399,
           "transfer_sha256": "7b27155519e3384e1520d1a3dc6488f93cf1e46292dae22129f972bc97524f2e",
           "installed_bytes": 93172399,
@@ -52,7 +52,7 @@ download. It follows **schema 1**:
 | `regions[].name` | Human-readable label shown in the app. |
 | `regions[].bbox` | `[west, south, east, north]` in WGS84 degrees, finite numbers. |
 | `regions[].maxzoom` | Highest zoom present in the basemap. |
-| `regions[].version` | Build date, `YYYYMMDD`; the app compares it to detect updates. |
+| `regions[].version` | Opaque catalog version; the app compares it to detect updates. The workflow writes `YYYYMMDD`, so a same-day rebuild keeps the same value while the asset URLs change. |
 | `files[].role` | `basemap` or `graph`. |
 | `files[].transfer_name` | Asset name on the wire (the release asset). |
 | `files[].installed_name` | File name after install, inside `packs/<id>/`. |
@@ -72,28 +72,35 @@ hashes, `http(s)` URLs, and a catalog response under 1 MiB.
 
 ## Release layout
 
-Each region is one GitHub release tagged `data-<region>-<YYYYMMDD>`:
+Each build is one GitHub release tagged
+`data-<region>-<YYYYMMDD>-<run_id>`, where `run_id` is the Actions run id, so
+every run gets its own tag:
 
 ```text
-data-moldova-20261116/
+data-moldova-20261117-12345678901/
   moldova.pmtiles              basemap (PMTiles, OpenMapTiles schema, zoom 0-14)
   moldova.graph.bin.gz         routing graph, gzip
-  moldova-search.sqlite        FTS5 place search
-  moldova-valhalla.tar         Valhalla tiles (server/desktop routing path)
-  manifest.json                build metadata, file sizes and hashes
+  manifest.json                build metadata: file hashes, source SHA-256, app commit
   ATTRIBUTION.md               OSM/ODbL attribution
 ```
 
-The catalog lists the two files the map app installs (`basemap`, `graph`); the
-search index and Valhalla tar ship in the same release for the native server
-path. Release tags are immutable in practice: a same-day rebuild replaces that
-day's release, and the catalog is regenerated in the same run.
+Only these four files are uploaded. The build also produces the raw
+`<region>.graph.bin`, the search SQLite and the Valhalla tar; they stay in the
+runner workspace because the app installs only `basemap` and `graph`, and the
+manifest is trimmed to those two data files so it has no dead URLs.
+
+The workflow uploads and verifies the release before touching `catalog.json`,
+and it never deletes an existing release. A same-day rebuild publishes a new
+tag; the previous release and its assets stay downloadable, so the catalog is
+never pointed at assets that do not exist yet.
 
 ## Limits
 
-- **2 GiB per release asset.** GitHub Releases rejects larger files. Large
-  countries are built with a lower `maxzoom` (workflow input) so each asset
-  stays under the cap; splitting an asset into parts is not implemented yet.
+- **2 GiB per release asset.** GitHub Releases rejects files at or above 2 GiB,
+  so the workflow runs `stat -c%s` on every upload and fails with the file name
+  before `gh release create`. Large countries are built with a lower `maxzoom`
+  (workflow input, validated as 0-14, matching `build.ps1`'s cap) so each asset
+  stays under it; splitting an asset into parts is not implemented yet.
 - **No binaries in git.** Git files are capped at 100 MB, so packs live only in
   releases. `out/` and `app/` are gitignored.
 - **Bandwidth.** GitHub Releases is not a CDN; heavy public traffic may be
@@ -108,13 +115,13 @@ day's release, and the catalog is regenerated in the same run.
 2. Run **Actions -> build-region -> Run workflow** with `region: <id>`
    (Geofabrik slug, e.g. `romania`). Optionally set `app_ref` to a tag or SHA
    for a reproducible build, and `maxzoom` to cap the basemap size.
-3. The run publishes `data-<region>-<YYYYMMDD>` and commits the regenerated
-   `catalog.json` to `main` as `github-actions[bot]`. Nothing is edited by hand.
-4. Verify the release carries `manifest.json` and `ATTRIBUTION.md`, and spot
-   check one hash:
+3. The run publishes `data-<region>-<YYYYMMDD>-<run_id>`, verifies the four
+   assets, then commits the regenerated `catalog.json` to `main` as
+   `github-actions[bot]`. Nothing is edited by hand.
+4. Verify the release carries the four assets, and spot check one hash:
 
    ```bash
-   gh release download data-<region>-<YYYYMMDD> --pattern '<region>.pmtiles' --dir /tmp/pack
+   gh release download data-<region>-<YYYYMMDD>-<run_id> --pattern '<region>.pmtiles' --dir /tmp/pack
    sha256sum /tmp/pack/<region>.pmtiles
    ```
 
@@ -140,20 +147,29 @@ gh workflow run build-region.yml -f region=ukraine -f maxzoom=10
 |---|---|---|---|
 | `region` | yes | - | Region id to build. |
 | `app_ref` | no | `main` | Pinpoint branch, tag or SHA providing `scripts/offline/`. |
-| `maxzoom` | no | region config | Override the basemap maxzoom. |
+| `maxzoom` | no | region config | Override the basemap maxzoom (0-14). |
 | `dry_run` | no | `false` | Print the build plan and stop; no release, no catalog commit. |
 
 What a run does: checks out this repo and the app at `app_ref`, installs Rust
-stable (Docker and `pwsh` are preinstalled on `ubuntu-latest`), runs
+stable and the Linux build dependencies (`pkg-config`, `libssl-dev` and the
+egui/X11 headers), compiles `pinpoint-offline-index` first so a missing
+dependency fails in minutes rather than after Planetiler/Valhalla, then runs
 `app/scripts/offline/build.ps1 -Region <region> -OutputRoot <workspace>/out`
 (Planetiler basemap, search index, Valhalla tiles, `native-router` graph,
-manifest, verification), creates the data release with the default
-`GITHUB_TOKEN` (`contents: write`, `--prerelease --latest=false`), regenerates
-`catalog.json` from the published files, and commits it to `main`. No extra
-secrets are needed. The build step always passes `-AllowUnpinnedSource`:
-scheduled builds follow Geofabrik `-latest`, so a changed extract warns and
-records the downloaded hash instead of failing the run; Docker images stay
-digest-pinned.
+manifest, verification). It uploads the four release assets with the default
+`GITHUB_TOKEN` (`contents: write`, `--prerelease --latest=false`), verifies
+them, regenerates `catalog.json` from the published files, and commits it to
+`main`. No extra secrets are needed.
+
+The build step always passes `-AllowUnpinnedSource`, so builds follow the
+Geofabrik `-latest` extract. That is deliberate: Geofabrik republishes daily
+and deletes old extracts, so a pinned weekly build fails as soon as upstream
+changes. Docker images stay digest-pinned. The cost is that the `YYYYMMDD`
+catalog version does not identify the input file; `manifest.json` records the
+actual `source_url`, `source_sha256`, `source_bytes` and `downloaded_at`, plus
+`app_sha` (the app commit that produced the pack), and the release notes carry
+the same app reference. Treat `manifest.json` as the provenance record, not the
+catalog.
 
 A concurrency group per region keeps one build in flight per region; queued
 runs for the same region wait instead of racing. Different regions may run in
@@ -165,19 +181,30 @@ parallel.
 gh workflow run build-region.yml -f region=romania -f app_ref=feat/global-maps -f dry_run=true
 ```
 
-Validates `region` and `maxzoom`, checks out both repos and runs
+Validates `region` and `maxzoom` (0-14), checks out both repos, installs Rust
+and the Linux build dependencies, compiles the offline index, and runs
 `build.ps1 ... -DryRun -AllowUnpinnedSource`, which prints the planned download,
 Planetiler/Valhalla Docker commands, `native-router` commands and the output
 file list, then stops. No Docker, no Geofabrik download, no release and no
-`catalog.json` change. The run still checks out both repos and installs Rust,
-and `build.ps1` must be a ref that supports `-DryRun` (`feat/global-maps` until
-that PR merges; older refs fail on the unknown parameter).
+`catalog.json` change. A ref without `src/bin/offline_index.rs` fails at the
+early index build.
 
 The multi-region build and catalog scripts live on the app repo branch
 `feat/global-maps` until that PR merges. Before then pass
 `app_ref: feat/global-maps` on every run (and pin a SHA once it is stable);
 after the merge the default `main` is enough. `app_ref` stays the way to test a
 script change before it lands on `main`.
+
+## Validate locally
+
+```bash
+node scripts/validate-catalog.mjs
+node --test scripts/validate-catalog.test.mjs
+```
+
+The JSON Schema is `catalog.schema.json`; the validator also enforces unique
+ids/roles and the 1 MiB cap, which JSON Schema cannot express. The build
+workflow runs both after regenerating the catalog.
 
 ## Attribution
 

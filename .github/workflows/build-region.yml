@@ -17,7 +17,7 @@ on:
         required: false
         default: main
       maxzoom:
-        description: Optional basemap maxzoom cap (keeps each asset under 2 GiB)
+        description: Optional basemap maxzoom cap, 0-14 (keeps each asset under 2 GiB)
         type: string
         required: false
       dry_run:
@@ -63,9 +63,6 @@ jobs:
           path: app
           fetch-depth: 1
 
-      - name: Set up Rust stable
-        uses: dtolnay/rust-toolchain@stable
-
       - name: Resolve release tag and version
         id: meta
         run: |
@@ -73,14 +70,31 @@ jobs:
             echo "::error::invalid region id: $REGION"
             exit 1
           fi
-          if [[ -n "$MAXZOOM" && ! "$MAXZOOM" =~ ^[0-9]{1,2}$ ]]; then
-            echo "::error::maxzoom must be a number, got: $MAXZOOM"
+          if [[ -n "$MAXZOOM" && ! "$MAXZOOM" =~ ^([0-9]|1[0-4])$ ]]; then
+            echo "::error::maxzoom must be an integer from 0 to 14, got: $MAXZOOM"
             exit 1
           fi
+          # The run id makes every tag unique, so a rebuild never has to replace
+          # an existing release. The catalog version stays an opaque date.
           version="$(date -u +%Y%m%d)"
+          tag="data-$REGION-$version-${{ github.run_id }}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=data-$REGION-$version" >> "$GITHUB_OUTPUT"
-          echo "release_url=https://github.com/${{ github.repository }}/releases/download/data-$REGION-$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "app_sha=$(git -C app rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "release_url=https://github.com/${{ github.repository }}/releases/download/$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux build dependencies
+        # The offline index CLI links egui/OpenSSL; without these headers the
+        # cargo build in build.ps1 fails late, after Planetiler and Valhalla.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-dev libgl1-mesa-dev
+
+      - name: Build the offline index early
+        run: cargo build --locked --features offline-build --bin pinpoint-offline-index --manifest-path app/Cargo.toml
 
       - name: Build region pack
         shell: pwsh
@@ -92,24 +106,62 @@ jobs:
           if ($env:DRY_RUN -eq 'true') { $extra += '-DryRun' }
           pwsh ./app/scripts/offline/build.ps1 -Region $env:REGION -OutputRoot $env:OUTPUT_ROOT -BaseUrl $env:RELEASE_URL -AllowUnpinnedSource @extra
 
+      - name: Keep only the published files in manifest.json
+        if: ${{ !inputs.dry_run }}
+        shell: pwsh
+        env:
+          APP_SHA: ${{ steps.meta.outputs.app_sha }}
+        run: |
+          # The release carries the four files the app installs. The build also
+          # produces the search SQLite and the Valhalla tar; drop their manifest
+          # entries so the published manifest has no dead URLs.
+          $path = Join-Path (Join-Path $env:OUTPUT_ROOT $env:REGION) 'manifest.json'
+          $manifest = [IO.File]::ReadAllText($path) | ConvertFrom-Json
+          if (-not $manifest.source_sha256 -or [long]$manifest.source_bytes -le 0) {
+            throw "manifest has no source SHA-256/bytes; refusing to publish an unattributed pack"
+          }
+          $keep = @("$env:REGION.pmtiles", "$env:REGION.graph.bin.gz")
+          $manifest.files = @($manifest.files | Where-Object { $keep -contains $_.name })
+          if ($manifest.files.Count -ne $keep.Count) {
+            throw "manifest has $($manifest.files.Count) publishable files, expected $($keep.Count)"
+          }
+          $manifest | Add-Member -NotePropertyName app_sha -NotePropertyValue $env:APP_SHA -Force
+          [IO.File]::WriteAllText($path, ($manifest | ConvertTo-Json -Depth 6), (New-Object System.Text.UTF8Encoding($false)))
+
       - name: Publish data release
         if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.meta.outputs.tag }}
           VERSION: ${{ steps.meta.outputs.version }}
+          APP_REF: ${{ inputs.app_ref || 'main' }}
+          APP_SHA: ${{ steps.meta.outputs.app_sha }}
         run: |
-          # A same-day rebuild replaces that day's release instead of piling up assets.
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release delete "$TAG" --yes --cleanup-tag
-          fi
-          gh release create "$TAG" "$OUTPUT_ROOT/$REGION"/* \
-            --title "Pinpoint map data: $REGION $VERSION" \
-            --notes "Automated build of \`$REGION\` from the pinned Geofabrik extract. Map data (c) OpenStreetMap contributors, ODbL 1.0. See ATTRIBUTION.md." \
+          assets=("$REGION.pmtiles" "$REGION.graph.bin.gz" manifest.json ATTRIBUTION.md)
+          files=()
+          limit=$((2 * 1024 * 1024 * 1024))
+          for name in "${assets[@]}"; do
+            path="$OUTPUT_ROOT/$REGION/$name"
+            if [[ ! -f "$path" ]]; then
+              echo "::error::build output is missing: $path"
+              exit 1
+            fi
+            bytes=$(stat -c%s "$path")
+            if (( bytes >= limit )); then
+              echo "::error::$name is $bytes bytes; GitHub rejects release assets at or above 2 GiB"
+              exit 1
+            fi
+            files+=("$path")
+          done
+          # Tags carry the run id, so this creates a new immutable release and
+          # leaves every previous release untouched.
+          gh release create "$TAG" "${files[@]}" \
+            --title "Pinpoint map data: $REGION $VERSION (run ${{ github.run_id }})" \
+            --notes "Automated build of $REGION from the Geofabrik -latest extract. manifest.json records the downloaded source SHA-256 and byte size. App ref: $APP_REF ($APP_SHA). Map data (c) OpenStreetMap contributors, ODbL 1.0. See ATTRIBUTION.md." \
             --prerelease --latest=false
-          assets="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
-          for required in "$REGION.pmtiles" "$REGION.graph.bin.gz" manifest.json ATTRIBUTION.md; do
-            if ! printf '%s\n' "$assets" | grep -qx "$required"; then
+          published="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+          for required in "${assets[@]}"; do
+            if ! printf '%s\n' "$published" | grep -qx "$required"; then
               echo "::error::release $TAG is missing asset: $required"
               exit 1
             fi
@@ -132,22 +184,40 @@ jobs:
 
       - name: Commit catalog.json
         if: ${{ !inputs.dry_run }}
+        shell: pwsh
         env:
+          RELEASE_URL: ${{ steps.meta.outputs.release_url }}
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
-          if git diff --quiet -- catalog.json; then
-            echo "catalog.json unchanged"
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add catalog.json
-          git commit -m "chore: catalog $REGION $VERSION"
-          # shortcut: parallel region jobs can race on this file; retry on a fresh
-          # base and fail loudly (a re-run rebuilds and repairs the catalog).
-          for attempt in 1 2 3; do
-            if git push; then exit 0; fi
-            git pull --rebase origin main
-          done
-          echo "::error::could not push catalog.json"
-          exit 1
+          $catalogScript = Join-Path $env:GITHUB_WORKSPACE 'app/scripts/offline/catalog.ps1'
+          $catalogPath = Join-Path $env:GITHUB_WORKSPACE 'catalog.json'
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            # A parallel region job may have pushed meanwhile. Start from the
+            # newest main and regenerate from the build output still in out/,
+            # so both regions end up in the catalog instead of one overwriting
+            # the other.
+            git fetch origin main
+            if ($LASTEXITCODE -ne 0) { throw "git fetch failed" }
+            git reset --hard FETCH_HEAD
+            if ($LASTEXITCODE -ne 0) { throw "git reset failed" }
+            & $catalogScript -RegionDir (Join-Path $env:OUTPUT_ROOT $env:REGION) -Catalog $catalogPath -BaseUrl $env:RELEASE_URL -Version $env:VERSION
+            node scripts/validate-catalog.mjs
+            if ($LASTEXITCODE -ne 0) { throw "catalog validation failed" }
+            git add catalog.json
+            git diff --cached --quiet
+            if ($LASTEXITCODE -eq 0) {
+              Write-Output 'catalog.json unchanged'
+              exit 0
+            }
+            git commit -m "chore: catalog $env:REGION $env:VERSION"
+            if ($LASTEXITCODE -ne 0) { throw "git commit failed" }
+            git push origin HEAD:main
+            if ($LASTEXITCODE -eq 0) {
+              Write-Output "catalog pushed on attempt $attempt"
+              exit 0
+            }
+            Write-Output "catalog push lost a race on attempt $attempt; retrying"
+          }
+          throw "could not push catalog.json after 3 attempts"
