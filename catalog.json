@@ -1,43 +1,7 @@
 {
   "schema": 1,
-  "updated": "2026-11-17T17:50:07Z",
+  "updated": "2026-11-23T13:07:06Z",
   "regions": [
-    {
-      "id": "moldova",
-      "name": "Moldova",
-      "bbox": [
-        26.6,
-        45.4,
-        30.2,
-        48.5
-      ],
-      "maxzoom": 14,
-      "version": "20261117",
-      "files": [
-        {
-          "role": "basemap",
-          "transfer_name": "moldova.pmtiles",
-          "installed_name": "moldova.pmtiles",
-          "url": "https://github.com/Prince-of-Nothing/pinpoint-maps/releases/download/data-moldova-20261117-44085934444/moldova.pmtiles",
-          "transfer_bytes": 93172433,
-          "transfer_sha256": "437ab3218a43f2cdbe559a9c253cfa4bc0349e69f2dfa85666daa86bddaa4874",
-          "installed_bytes": 93172433,
-          "installed_sha256": "437ab3218a43f2cdbe559a9c253cfa4bc0349e69f2dfa85666daa86bddaa4874",
-          "compression": "identity"
-        },
-        {
-          "role": "graph",
-          "transfer_name": "moldova.graph.bin.gz",
-          "installed_name": "moldova.graph.bin",
-          "url": "https://github.com/Prince-of-Nothing/pinpoint-maps/releases/download/data-moldova-20261117-44085934444/moldova.graph.bin.gz",
-          "transfer_bytes": 44618497,
-          "transfer_sha256": "3f703181683d6aa567cf5c112c73e8eda0326b464b4ef093ba3a037c75c47333",
-          "installed_bytes": 110858935,
-          "installed_sha256": "25e2e8eeb524418d66445dc8c66b7d6c57b615945965692be82cb4dcf9b08253",
-          "compression": "gzip"
-        }
-      ]
-    },
     {
       "id": "romania",
       "name": "Romania",
@@ -70,6 +34,42 @@
           "transfer_sha256": "c6e7735518eb8d462e58da8c2a8602b4ecc51ba92b1e97954601274ac06b2703",
           "installed_bytes": 463119610,
           "installed_sha256": "eb62ef1bbade439ba1dedb08ca9523957e76ae3935f1315aa2a946ca6152da62",
+          "compression": "gzip"
+        }
+      ]
+    },
+    {
+      "id": "moldova",
+      "name": "Moldova",
+      "bbox": [
+        26.6,
+        45.4,
+        30.2,
+        48.5
+      ],
+      "maxzoom": 14,
+      "version": "20261123",
+      "files": [
+        {
+          "role": "basemap",
+          "transfer_name": "moldova.pmtiles",
+          "installed_name": "moldova.pmtiles",
+          "url": "https://github.com/Prince-of-Nothing/pinpoint-maps/releases/download/data-moldova-20261123-45179212557/moldova.pmtiles",
+          "transfer_bytes": 93199233,
+          "transfer_sha256": "0f7a806e753cc2571607dfde2b2e12c0d99afb7454f6f82fc75c985e366e7c5f",
+          "installed_bytes": 93199233,
+          "installed_sha256": "0f7a806e753cc2571607dfde2b2e12c0d99afb7454f6f82fc75c985e366e7c5f",
+          "compression": "identity"
+        },
+        {
+          "role": "graph",
+          "transfer_name": "moldova.graph.bin.gz",
+          "installed_name": "moldova.graph.bin",
+          "url": "https://github.com/Prince-of-Nothing/pinpoint-maps/releases/download/data-moldova-20261123-45179212557/moldova.graph.bin.gz",
+          "transfer_bytes": 44619146,
+          "transfer_sha256": "95ae42cce87097e3e41525756181c24ff50a017ef43f263e75d36b7013675d3f",
+          "installed_bytes": 110861758,
+          "installed_sha256": "3e3c278b417eef4d06a0713034ddee627dadcdf0041cbdd1a5ff7ce4b537cbd2",
           "compression": "gzip"
         }
       ]
